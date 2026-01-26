@@ -1,9 +1,5 @@
 // ==================== 설정 ====================
 
-// ⚠️ 한국은행 API 키를 여기에 입력하세요
-// 발급: https://ecos.bok.or.kr/
-// const BOK_API_KEY = process.env.BOK_API_KEY;
-
 let exchangeRates = {};
 let currentRate = 0;
 
@@ -111,13 +107,11 @@ function safePercentage(current, historical) {
   return isFinite(diff) ? diff : 0;
 }
 
-// 문제 3: 드롭다운에서 선택된 통화 제외
 function updateCurrencyOptions() {
   const allCurrencies = ['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CNY'];
   const fromValue = fromCurrency.value;
   const toValue = toCurrency.value;
 
-  // toCurrency 옵션 업데이트 (fromCurrency에서 선택된 것 제외)
   toCurrency.innerHTML = '';
   allCurrencies.forEach(currency => {
     if (currency !== fromValue) {
@@ -131,7 +125,6 @@ function updateCurrencyOptions() {
     }
   });
 
-  // 만약 toCurrency가 fromCurrency와 같아졌다면 다른 것으로 변경
   if (fromValue === toValue) {
     toCurrency.value = allCurrencies.find(c => c !== fromValue);
   }
@@ -178,26 +171,21 @@ async function fetchCurrentRates() {
   }
 }
 
-// 문제 1: 한국은행 API 개선 (CORS 우회 및 에러 처리)
+// ✅ Netlify Functions를 통한 한국은행 API 호출
 async function fetchBOKHistoricalRate(currency, daysAgo) {
   try {
-    if (BOK_API_KEY === 'YOUR_BOK_API_KEY_HERE') {
-      console.warn('⚠️ 한국은행 API 키가 없어 근사치를 사용합니다');
-      return null;
-    }
-
     const currencyCode = bokCurrencyCode[currency];
     if (!currencyCode) return null;
 
-    // 최근 N일치 데이터 조회 (영업일 고려)
     const endDate = getBOKDateString(0);
-    const startDate = getBOKDateString(daysAgo + 10); // 여유있게
+    const startDate = getBOKDateString(daysAgo + 10);
 
-    const url = `https://ecos.bok.or.kr/api/StatisticSearch/${BOK_API_KEY}/json/kr/1/100/036Y001/D/${startDate}/${endDate}/${currencyCode}`;
+    // Netlify Function 엔드포인트 호출
+    const functionUrl = `/.netlify/functions/bok-proxy?currency=${currencyCode}&startDate=${startDate}&endDate=${endDate}`;
 
-    console.log('한국은행 API 호출:', url);
+    console.log('Netlify Function 호출:', functionUrl);
 
-    const response = await fetch(url);
+    const response = await fetch(functionUrl);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -206,12 +194,11 @@ async function fetchBOKHistoricalRate(currency, daysAgo) {
     const data = await response.json();
 
     if (data.StatisticSearch && data.StatisticSearch.row && data.StatisticSearch.row.length > 0) {
-      // 가장 최근 데이터 사용
       const rows = data.StatisticSearch.row;
       const targetRow = rows[Math.max(0, rows.length - Math.min(daysAgo, rows.length))];
       let rate = parseFloat(targetRow.DATA_VALUE);
 
-      // JPY는 100엔 기준이므로 조정
+      // JPY는 100엔 기준
       if (currency === 'JPY') {
         rate = rate / 100;
       }
@@ -226,25 +213,6 @@ async function fetchBOKHistoricalRate(currency, daysAgo) {
     console.error(`한국은행 환율 조회 실패 (${currency}):`, error);
     return null;
   }
-}
-
-// 과거 환율 근사치 계산 (API 실패 시)
-function approximateHistoricalRates() {
-  if (!currentRate || currentRate === 0) {
-    historicalRates.yesterday = 0;
-    historicalRates.week = 0;
-    historicalRates.month = 0;
-    historicalRates.year = 0;
-    return;
-  }
-
-  // 실제 변동률 기반 근사치
-  historicalRates.yesterday = currentRate * (0.998 + Math.random() * 0.004);   // ±0.2%
-  historicalRates.week = currentRate * (0.995 + Math.random() * 0.01);         // ±0.5%
-  historicalRates.month = currentRate * (0.98 + Math.random() * 0.04);         // ±2%
-  historicalRates.year = currentRate * (0.95 + Math.random() * 0.10);          // ±5%
-
-  console.log('⚠️ 과거 환율 근사치 사용');
 }
 
 async function fetchHistoricalRates() {
@@ -265,11 +233,11 @@ async function fetchHistoricalRates() {
 
     console.log('현재 환율:', currentRate);
 
-    // KRW가 포함된 경우
+    // KRW 포함 - Netlify Functions 사용
     if (hasKRW()) {
       const targetCurrency = from === 'KRW' ? to : from;
 
-      console.log(`한국은행 API로 ${targetCurrency} 과거 환율 조회 시도...`);
+      console.log(`Netlify Functions로 ${targetCurrency} 과거 환율 조회...`);
 
       const [yesterdayRate, weekRate, monthRate, yearRate] = await Promise.all([
         fetchBOKHistoricalRate(targetCurrency, 1),
@@ -278,16 +246,13 @@ async function fetchHistoricalRates() {
         fetchBOKHistoricalRate(targetCurrency, 365)
       ]);
 
-      // 데이터가 하나라도 있으면 사용
       if (yesterdayRate || weekRate || monthRate || yearRate) {
         if (from === 'KRW') {
-          // KRW → 외화 (1 KRW = X 외화)
           historicalRates.yesterday = yesterdayRate ? (1 / yesterdayRate) : 0;
           historicalRates.week = weekRate ? (1 / weekRate) : 0;
           historicalRates.month = monthRate ? (1 / monthRate) : 0;
           historicalRates.year = yearRate ? (1 / yearRate) : 0;
         } else {
-          // 외화 → KRW (1 외화 = X KRW)
           historicalRates.yesterday = yesterdayRate || 0;
           historicalRates.week = weekRate || 0;
           historicalRates.month = monthRate || 0;
@@ -300,14 +265,17 @@ async function fetchHistoricalRates() {
         console.log('1달 전:', historicalRates.month);
         console.log('1년 전:', historicalRates.year);
       } else {
-        console.warn('한국은행 데이터 없음 - 근사치 사용');
-        approximateHistoricalRates();
+        console.warn('한국은행 데이터 없음');
+        historicalRates.yesterday = 0;
+        historicalRates.week = 0;
+        historicalRates.month = 0;
+        historicalRates.year = 0;
       }
 
       return;
     }
 
-    // KRW가 없는 경우 - Frankfurter API
+    // KRW 없음 - Frankfurter API
     const yesterday = getDateString(1);
     const week = getDateString(7);
     const month = getDateString(30);
@@ -329,7 +297,10 @@ async function fetchHistoricalRates() {
 
   } catch (error) {
     console.error('과거 환율 로드 실패:', error);
-    approximateHistoricalRates();
+    historicalRates.yesterday = 0;
+    historicalRates.week = 0;
+    historicalRates.month = 0;
+    historicalRates.year = 0;
   }
 }
 
@@ -371,6 +342,10 @@ function updateAll() {
     profitLossSection.style.display = 'none';
     analysisSection.style.display = 'none';
     updateSameCurrencyCard();
+  } else if (hasKRW() && historicalRates.month === 0) {
+    profitLossSection.style.display = 'none';
+    analysisSection.style.display = 'none';
+    updateKRWLoadingCard();
   } else {
     updateProfitLoss();
     updateAnalysis();
@@ -383,7 +358,6 @@ function updateSymbols() {
   toSymbol.textContent = currencySymbols[toCurrency.value];
 }
 
-// 문제 2: 현재 환율 표시 개선
 function updateCurrentRate() {
   const from = fromCurrency.value;
   const to = toCurrency.value;
@@ -396,17 +370,13 @@ function updateCurrentRate() {
     currentRate = exchangeRates[from] / exchangeRates[to];
   }
 
-  // 더 직관적인 환율 표시
-  // 예: 1 USD = 1458.40 KRW (기존: 1 KRW = 0.0007 USD)
   let displayFrom, displayTo, displayRate;
 
   if (currentRate >= 1) {
-    // 1보다 크면 그대로
     displayFrom = from;
     displayTo = to;
     displayRate = currentRate.toFixed(2);
   } else {
-    // 1보다 작으면 역수로 표시
     displayFrom = to;
     displayTo = from;
     displayRate = (1 / currentRate).toFixed(2);
@@ -445,14 +415,19 @@ function updateSameCurrencyCard() {
   decisionCard.style.display = 'block';
 }
 
+function updateKRWLoadingCard() {
+  decisionCard.className = 'decision-card';
+  decisionText.innerHTML = `
+        <span class="decision-highlight">현재 환율: 1 ${rateToCurrency.textContent} = ${rateValue.textContent} ${rateFromCurrency.textContent}</span>
+        <br><br>
+        과거 환율 데이터를 불러오는 중입니다...
+    `;
+  decisionCard.style.display = 'block';
+}
+
 function updateProfitLoss() {
   const amount = parseNumber(fromAmount.value);
-  if (amount === 0 || isSameCurrency()) {
-    profitLossSection.style.display = 'none';
-    return;
-  }
-
-  if (historicalRates.month === 0) {
+  if (amount === 0 || isSameCurrency() || historicalRates.month === 0) {
     profitLossSection.style.display = 'none';
     return;
   }
@@ -500,12 +475,7 @@ function formatProfitLoss(diff, currency) {
 }
 
 function updateAnalysis() {
-  if (isSameCurrency()) {
-    analysisSection.style.display = 'none';
-    return;
-  }
-
-  if (historicalRates.month === 0) {
+  if (isSameCurrency() || historicalRates.month === 0) {
     analysisSection.style.display = 'none';
     return;
   }
@@ -532,9 +502,7 @@ function updateDecisionCard() {
   }
 
   if (historicalRates.month === 0) {
-    decisionCard.className = 'decision-card';
-    decisionText.innerHTML = `과거 환율 데이터를 불러오는 중입니다...<br><br><small>한국은행 API 키가 필요할 수 있습니다.</small>`;
-    decisionCard.style.display = 'block';
+    updateKRWLoadingCard();
     return;
   }
 
@@ -588,16 +556,15 @@ fromAmount.addEventListener('input', () => {
 
 fromAmount.addEventListener('blur', formatInput);
 
-// 문제 4: 통화 변경 시 금액 초기화
 fromCurrency.addEventListener('change', async () => {
-  fromAmount.value = '1'; // 금액 초기화
-  updateCurrencyOptions(); // 드롭다운 옵션 업데이트
+  fromAmount.value = '1';
+  updateCurrencyOptions();
   await fetchHistoricalRates();
   updateAll();
 });
 
 toCurrency.addEventListener('change', async () => {
-  fromAmount.value = '1'; // 금액 초기화
+  fromAmount.value = '1';
   await fetchHistoricalRates();
   updateAll();
 });
@@ -608,7 +575,7 @@ fromAmount.addEventListener('focus', function () {
 
 // ==================== 초기화 ====================
 
-updateCurrencyOptions(); // 초기 드롭다운 설정
+updateCurrencyOptions();
 updateSymbols();
 fetchExchangeRates();
 
