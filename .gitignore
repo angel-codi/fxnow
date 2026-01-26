@@ -1,0 +1,4 @@
+node_nodules
+.env
+.netlify/
+.DS_Store

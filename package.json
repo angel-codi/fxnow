@@ -1,0 +1,16 @@
+{
+  "name": "fxnow",
+  "version": "1.0.0",
+  "description": "환율을 손익으로 알려주는 환전 도우미",
+  "main": "index.html",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo 'No build required'"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  }
+}

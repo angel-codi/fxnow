@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fxnow - 환율을 손익으로 알려주는 환전 도우미</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="container">
+    <div class="logo">fxnow</div>
+    <div class="tagline">환율을 '숫자'가 아니라 '손익'으로 알려주는 환전 도우미</div>
+
+    <!-- 결론 카드 -->
+    <div class="decision-card" id="decisionCard" style="display: none;">
+      <div class="decision-title">💡 지금 환전하면?</div>
+      <div class="decision-text" id="decisionText"></div>
+    </div>
+
+    <!-- 상태 바 -->
+    <div id="statusBar" class="status-bar status-loading">환율 정보를 불러오는 중...</div>
+
+    <!-- 입력 섹션 -->
+    <div class="question-label">얼마를 바꿀 건가요?</div>
+
+    <div class="currency-row">
+      <select class="currency-select" id="fromCurrency">
+        <option value="KRW" selected>KRW</option>
+        <option value="USD">USD</option>
+        <option value="JPY">JPY</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+        <option value="CNY">CNY</option>
+      </select>
+      <div class="input-wrapper">
+        <input type="text" class="amount-input" id="fromAmount" value="1,000,000" placeholder="0">
+        <span class="currency-symbol" id="fromSymbol">₩</span>
+      </div>
+    </div>
+
+    <div class="arrow-container">↓</div>
+
+    <div class="currency-row">
+      <select class="currency-select" id="toCurrency">
+        <option value="USD" selected>USD</option>
+        <option value="JPY">JPY</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+        <option value="CNY">CNY</option>
+        <option value="KRW">KRW</option>
+      </select>
+      <div class="input-wrapper">
+        <input type="text" class="amount-input" id="toAmount" value="0" readonly>
+        <span class="currency-symbol" id="toSymbol">$</span>
+      </div>
+    </div>
+
+    <!-- 현재 환율 -->
+    <div class="rate-info" id="rateInfo" style="display: none;">
+      <div>
+        <div class="rate-text">
+          1 <span id="rateFromCurrency">KRW</span> =
+          <span class="rate-value" id="rateValue">0.0007</span>
+          <span id="rateToCurrency">USD</span>
+        </div>
+        <div class="rate-update" id="rateUpdate">실시간 · 방금 업데이트</div>
+      </div>
+    </div>
+
+    <!-- 손익 계산 섹션 -->
+    <div class="profit-loss-section" id="profitLossSection" style="display: none;">
+      <div class="profit-loss-title">📊 과거 환율 대비 손익</div>
+
+      <div class="profit-loss-item">
+        <span class="profit-loss-label">어제 대비</span>
+        <span class="profit-loss-value" id="profitYesterday">-</span>
+      </div>
+
+      <div class="profit-loss-item">
+        <span class="profit-loss-label">7일 평균 대비</span>
+        <span class="profit-loss-value" id="profit7days">-</span>
+      </div>
+
+      <div class="profit-loss-item">
+        <span class="profit-loss-label">1달 평균 대비</span>
+        <span class="profit-loss-value" id="profit1month">-</span>
+      </div>
+    </div>
+
+    <!-- 비교 분석 -->
+    <div class="analysis-section" id="analysisSection" style="display: none;">
+      <div class="analysis-title">📈 환율 추이 분석</div>
+
+      <div class="analysis-item">
+        <div class="analysis-header">
+          <span class="analysis-period">최근 7일 평균</span>
+          <span class="analysis-rate" id="rate7days">-</span>
+        </div>
+        <div class="analysis-summary" id="summary7days">-</div>
+      </div>
+
+      <div class="analysis-item">
+        <div class="analysis-header">
+          <span class="analysis-period">최근 1달 평균</span>
+          <span class="analysis-rate" id="rate1month">-</span>
+        </div>
+        <div class="analysis-summary" id="summary1month">-</div>
+      </div>
+
+      <div class="analysis-item">
+        <div class="analysis-header">
+          <span class="analysis-period">최근 1년 평균</span>
+          <span class="analysis-rate" id="rate1year">-</span>
+        </div>
+        <div class="analysis-summary" id="summary1year">-</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>
