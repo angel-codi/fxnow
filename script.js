@@ -2,7 +2,7 @@
 
 // ⚠️ 한국은행 API 키를 여기에 입력하세요
 // 발급: https://ecos.bok.or.kr/
-const BOK_API_KEY = process.env.BOK_API_KEY;
+// const BOK_API_KEY = process.env.BOK_API_KEY;
 
 let exchangeRates = {};
 let currentRate = 0;
