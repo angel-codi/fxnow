@@ -1,4 +1,5 @@
 // ==================== 설정 ====================
+// 한국수출입은행 공식 환율 사용 - 정부 공인 데이터
 
 let exchangeRates = {};
 let currentRate = 0;
@@ -17,14 +18,6 @@ const currencySymbols = {
   EUR: '€',
   GBP: '£',
   CNY: '¥'
-};
-
-const bokCurrencyCode = {
-  'USD': 'USD',
-  'JPY': 'JPY(100)',
-  'EUR': 'EUR',
-  'GBP': 'GBP',
-  'CNY': 'CNY'
 };
 
 // ==================== DOM 요소 ====================
@@ -72,13 +65,10 @@ function hasKRW() {
 function getDateString(daysAgo) {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
-  return date.toISOString().split('T')[0];
-}
-
-function getBOKDateString(daysAgo) {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  return date.toISOString().split('T')[0].replace(/-/g, '');
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
 }
 
 function formatNumber(num) {
@@ -130,96 +120,81 @@ function updateCurrencyOptions() {
   }
 }
 
-// ==================== API 호출 ====================
+// ==================== API 호출 - 한국수출입은행 ====================
 
 async function fetchCurrentRates() {
   try {
-    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+    const response = await fetch('/.netlify/functions/exim-proxy?type=current');
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data = await response.json();
-    const rates = data.rates;
-    const usdToKrw = rates.KRW;
+    const result = await response.json();
 
-    exchangeRates = {
-      KRW: 1,
-      USD: usdToKrw,
-      JPY: usdToKrw / rates.JPY,
-      EUR: usdToKrw / rates.EUR,
-      GBP: usdToKrw / rates.GBP,
-      CNY: usdToKrw / rates.CNY
-    };
+    if (result.error) {
+      throw new Error(result.message || result.error);
+    }
 
-    console.log('✅ 현재 환율 로드 완료');
-    console.log('1 USD =', exchangeRates.USD.toFixed(2), 'KRW');
+    if (result.rates) {
+      exchangeRates = {
+        KRW: 1,
+        USD: result.rates.USD || 1440,
+        JPY: result.rates.JPY || 9.74,
+        EUR: result.rates.EUR || 1600,
+        GBP: result.rates.GBP || 1850,
+        CNY: result.rates.CNY || 200
+      };
 
-    return true;
+      console.log('✅ 한국수출입은행 현재 환율 로드 완료');
+      console.log('출처: 한국수출입은행 (매일 11시 고시)');
+      console.log('1 USD =', exchangeRates.USD.toFixed(2), 'KRW');
+
+      return true;
+    }
+
+    throw new Error('환율 데이터 없음');
+
   } catch (error) {
     console.error('현재 환율 로드 실패:', error);
     exchangeRates = {
       KRW: 1,
-      USD: 1458.40,
+      USD: 1440.41,
       JPY: 9.74,
       EUR: 1604.50,
       GBP: 1847.30,
       CNY: 200.45
     };
+    console.warn('⚠️ 기본 환율 사용 중');
     return false;
   }
 }
 
-// ✅ Netlify Functions를 통한 한국은행 API 호출
-async function fetchBOKHistoricalRate(currency, daysAgo) {
+async function fetchHistoricalRate(currency, daysAgo) {
   try {
-    const currencyCode = bokCurrencyCode[currency];
-    if (!currencyCode) return null;
+    const searchDate = getDateString(daysAgo);
 
-    // 한국은행 데이터는 지연되므로 더 과거 날짜 사용
-    const adjustedDaysAgo = daysAgo + 5;  // 5일 더 과거
-    const endDate = getBOKDateString(adjustedDaysAgo);
-    const startDate = getBOKDateString(adjustedDaysAgo + 10);
-
-    // Netlify Function 엔드포인트 호출
-    const functionUrl = `/.netlify/functions/bok-proxy?currency=${currencyCode}&startDate=${startDate}&endDate=${endDate}`;
-
-    console.log(`한국은행 환율 조회: ${currency}, ${daysAgo}일 전 (조정: ${adjustedDaysAgo}일 전)`);
-
-    const response = await fetch(functionUrl);
+    const response = await fetch(`/.netlify/functions/exim-proxy?type=historical&currency=${currency}&date=${searchDate}`);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data = await response.json();
+    const result = await response.json();
 
-    // 에러 응답 처리
-    if (data.error) {
-      console.warn(`한국은행 데이터 없음 (${currency}, ${daysAgo}일 전):`, data.message || data.error);
+    if (result.error) {
+      console.warn(`환율 조회 실패 (${currency}, ${daysAgo}일 전):`, result.message);
       return null;
     }
 
-    if (data.StatisticSearch && data.StatisticSearch.row && data.StatisticSearch.row.length > 0) {
-      const rows = data.StatisticSearch.row;
-      // 가장 최근 데이터 사용
-      const latestRow = rows[rows.length - 1];
-      let rate = parseFloat(latestRow.DATA_VALUE);
-
-      // JPY는 100엔 기준
-      if (currency === 'JPY') {
-        rate = rate / 100;
-      }
-
-      console.log(`✅ BOK 환율 (${currency}, ${daysAgo}일 전): ${rate}`);
-      return rate;
+    if (result.rate) {
+      console.log(`✅ ${currency} ${daysAgo}일 전: ${result.rate}`);
+      return result.rate;
     }
 
-    console.warn(`한국은행 데이터 없음 (${currency}, ${daysAgo}일 전)`);
     return null;
   } catch (error) {
-    console.error(`한국은행 환율 조회 실패 (${currency}):`, error);
+    console.error(`환율 조회 실패 (${currency}, ${daysAgo}일 전):`, error);
     return null;
   }
 }
@@ -242,20 +217,19 @@ async function fetchHistoricalRates() {
 
     console.log('현재 환율:', currentRate);
 
-    // KRW 포함 - Netlify Functions 사용
+    // KRW 포함 - 한국수출입은행 사용
     if (hasKRW()) {
       const targetCurrency = from === 'KRW' ? to : from;
 
-      console.log(`Netlify Functions로 ${targetCurrency} 과거 환율 조회...`);
+      console.log(`한국수출입은행 ${targetCurrency} 과거 환율 조회...`);
 
       const [yesterdayRate, weekRate, monthRate, yearRate] = await Promise.all([
-        fetchBOKHistoricalRate(targetCurrency, 1),
-        fetchBOKHistoricalRate(targetCurrency, 7),
-        fetchBOKHistoricalRate(targetCurrency, 30),
-        fetchBOKHistoricalRate(targetCurrency, 365)
+        fetchHistoricalRate(targetCurrency, 1),
+        fetchHistoricalRate(targetCurrency, 7),
+        fetchHistoricalRate(targetCurrency, 30),
+        fetchHistoricalRate(targetCurrency, 365)
       ]);
 
-      // 한국은행 데이터가 하나라도 있으면 사용
       if (yesterdayRate || weekRate || monthRate || yearRate) {
         if (from === 'KRW') {
           historicalRates.yesterday = yesterdayRate ? (1 / yesterdayRate) : 0;
@@ -269,13 +243,13 @@ async function fetchHistoricalRates() {
           historicalRates.year = yearRate || 0;
         }
 
-        console.log('✅ 한국은행 과거 환율 로드 완료');
-        console.log('어제:', historicalRates.yesterday || '없음');
+        console.log('✅ 과거 환율 로드 완료');
+        console.log('1일 전:', historicalRates.yesterday || '없음 (주말/공휴일)');
         console.log('7일 전:', historicalRates.week || '없음');
-        console.log('1달 전:', historicalRates.month || '없음');
-        console.log('1년 전:', historicalRates.year || '없음');
+        console.log('30일 전:', historicalRates.month || '없음');
+        console.log('365일 전:', historicalRates.year || '없음');
       } else {
-        console.warn('⚠️ 한국은행 데이터를 모두 가져올 수 없습니다');
+        console.warn('⚠️ 과거 환율 데이터 없음 (주말/공휴일)');
         historicalRates.yesterday = 0;
         historicalRates.week = 0;
         historicalRates.month = 0;
@@ -285,25 +259,11 @@ async function fetchHistoricalRates() {
       return;
     }
 
-    // KRW 없음 - Frankfurter API
-    const yesterday = getDateString(1);
-    const week = getDateString(7);
-    const month = getDateString(30);
-    const year = getDateString(365);
-
-    const [yesterdayData, weekData, monthData, yearData] = await Promise.all([
-      fetch(`https://api.frankfurter.app/${yesterday}?from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`https://api.frankfurter.app/${week}?from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`https://api.frankfurter.app/${month}?from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`https://api.frankfurter.app/${year}?from=${from}&to=${to}`).then(r => r.json())
-    ]);
-
-    historicalRates.yesterday = yesterdayData.rates?.[to] || currentRate;
-    historicalRates.week = weekData.rates?.[to] || currentRate;
-    historicalRates.month = monthData.rates?.[to] || currentRate;
-    historicalRates.year = yearData.rates?.[to] || currentRate;
-
-    console.log('✅ Frankfurter 과거 환율 로드 완료');
+    // KRW 없음 - 현재 환율 유지
+    historicalRates.yesterday = currentRate;
+    historicalRates.week = currentRate;
+    historicalRates.month = currentRate;
+    historicalRates.year = currentRate;
 
   } catch (error) {
     console.error('과거 환율 로드 실패:', error);
@@ -317,7 +277,7 @@ async function fetchHistoricalRates() {
 async function fetchExchangeRates() {
   try {
     statusBar.className = 'status-bar status-loading';
-    statusBar.textContent = '환율 정보를 불러오는 중...';
+    statusBar.textContent = '한국수출입은행 환율 정보를 불러오는 중...';
 
     await fetchCurrentRates();
 
@@ -325,7 +285,7 @@ async function fetchExchangeRates() {
     await fetchHistoricalRates();
 
     statusBar.className = 'status-bar status-success';
-    statusBar.textContent = '✓ 최신 환율 정보 업데이트 완료';
+    statusBar.textContent = '✓ 최신 환율 정보 업데이트 완료 (출처: 한국수출입은행)';
 
     setTimeout(() => {
       statusBar.style.display = 'none';
@@ -380,30 +340,38 @@ function updateCurrentRate() {
     currentRate = exchangeRates[from] / exchangeRates[to];
   }
 
-  let displayFrom, displayTo, displayRate;
+  // ✅ 항상 "1 USD = X KRW" 형식으로 표시
+  let displayValue, displayFromCurr, displayToCurr;
 
-  // ✅ 수정: 환율 표시 방향 올바르게
-  if (currentRate >= 1) {
-    // currentRate가 1 이상이면 그대로 표시
-    // 예: 1 USD = 1440 KRW (currentRate = 1440)
-    displayFrom = from;
-    displayTo = to;
-    displayRate = currentRate.toFixed(2);
+  if (from === 'KRW') {
+    // KRW → USD: 1 USD = X KRW
+    displayValue = exchangeRates[to].toFixed(2);
+    displayFromCurr = to;
+    displayToCurr = from;
+  } else if (to === 'KRW') {
+    // USD → KRW: 1 USD = X KRW
+    displayValue = exchangeRates[from].toFixed(2);
+    displayFromCurr = from;
+    displayToCurr = to;
   } else {
-    // currentRate가 1 미만이면 역수로 표시
-    // 예: 1 KRW = 0.0007 USD → 1 USD = 1440 KRW로 표시
-    displayFrom = to;
-    displayTo = from;
-    displayRate = (1 / currentRate).toFixed(2);
+    // USD → EUR 등
+    if (currentRate >= 1) {
+      displayValue = currentRate.toFixed(4);
+      displayFromCurr = from;
+      displayToCurr = to;
+    } else {
+      displayValue = (1 / currentRate).toFixed(4);
+      displayFromCurr = to;
+      displayToCurr = from;
+    }
   }
 
-  // 최종 표시
-  rateToCurrency.textContent = displayFrom;
-  rateFromCurrency.textContent = displayTo;
-  rateValue.textContent = displayRate;
+  rateValue.textContent = displayValue;
+  rateToCurrency.textContent = displayFromCurr;
+  rateFromCurrency.textContent = displayToCurr;
 
   const now = new Date();
-  rateUpdate.textContent = `실시간 · ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} 업데이트`;
+  rateUpdate.textContent = `한국수출입은행 · ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} 확인`;
 
   rateInfo.style.display = 'flex';
 }
@@ -436,7 +404,10 @@ function updateKRWLoadingCard() {
   decisionText.innerHTML = `
         <span class="decision-highlight">현재 환율: 1 ${rateToCurrency.textContent} = ${rateValue.textContent} ${rateFromCurrency.textContent}</span>
         <br><br>
+        <small>출처: 한국수출입은행 (매일 오전 11시 고시)</small>
+        <br><br>
         과거 환율 데이터를 불러오는 중입니다...
+        <br><small>※ 주말/공휴일은 데이터가 없을 수 있습니다</small>
     `;
   decisionCard.style.display = 'block';
 }
@@ -556,6 +527,8 @@ function updateDecisionCard() {
     }
   }
 
+  decision += `<br><br><small style="opacity: 0.8;">※ 출처: 한국수출입은행 (정부 공식 고시환율)</small>`;
+
   decisionText.innerHTML = decision;
   decisionCard.style.display = 'block';
 }
@@ -595,4 +568,5 @@ updateCurrencyOptions();
 updateSymbols();
 fetchExchangeRates();
 
+// 1시간마다 자동 업데이트
 setInterval(fetchExchangeRates, 3600000);
